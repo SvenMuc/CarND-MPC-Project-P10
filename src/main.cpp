@@ -109,13 +109,6 @@ int main() {
           }
           
           /*
-          * TODO: Calculate steering angle and throttle using MPC.
-          *
-          * Both are in between [-1, 1].
-          *
-          */
-          
-          /*
            * Calculate steering angle and throttle using MPC.
            * Both are in between [-1, 1].
            * Simulator has 100ms latency, so will predict state at that point in time.
