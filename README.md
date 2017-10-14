@@ -1,7 +1,102 @@
-# CarND-Controls-MPC
-Self-Driving Car Engineer Nanodegree Program
+# Project 10: CarND-Controls-MPC
+[![Udacity - Self-Driving Car NanoDegree](https://s3.amazonaws.com/udacity-sdc/github/shield-carnd.svg)](http://www.udacity.com/drive)
 
----
+[//]: # (Image References)
+[image_mpc_simulator]: ./images/mpc_simulator.png
+
+## Introduction
+The goal of this project is to implement a C++ Model Predictive Controller (MPC) to drive the vehicle around the track in Udacity's simulator. Additionally, a 100 ms latency between actuation commands on top of the connection latency have to be compensated by the controller.
+
+## Simulator
+The simulator returns x and y waypoints (`ptsx`and `ptsy`), the vehicle orientation `psi` in radians, the vhicles' global position `x`and `y` in meter, the steering angle `steering_angle` in radians, the throttle position `throttle` and the vehicle's speed `speed`in mph.
+
+The yellow line represents the waypoints returned by the simulator and the green lane the polynomial fitted reference path of the MPC.
+
+![MPC Simulator][image_mpc_simulator]
+
+## MPC - Model Predictive Controller
+
+### State Vector
+The state vector is defined as followed [px, py, psi, v, cte, epsi].
+
+| State | Description                                                                                          | Unit |
+|:------|:-----------------------------------------------------------------------------------------------------|:----:|
+| px    | Vehicle position x                                                                                   |  m   |
+| py    | Vehicle position y                                                                                   |  m   |
+| psi   | Vehicle orientation                                                                                  | rad  |
+| v     | Velocity                                                                                             | mph  |
+| cte   | The Cross Track Error is the delta between the predicted distance of the vehicle and the trajectory. |  m   |
+| epsi  | Psi error is the delta between the predicted vehicle orientation and the trajectory orientation.     | rad  |
+
+### Actuator Vector
+The simulator provides two actuator attributes. The steering angle `psi` and the throttle and break in a single attribute `a`. A negative value decelerates and a positive value accelerates the vehicle.
+
+| Actuator | Description                                            |  Range   |  Unit  |
+|:---------|:-------------------------------------------------------|:--------:|:------:|
+| psi      | Steering angle (Attention: the interface uses radians) | [-25,25] | degree |
+| a        | throttle/brake                                         |  [-1,1]  |   %    |
+
+### Kinematic Model
+The kinematic model predicts the state vector on the next timestep considering the actual state and actuator values as followed. The model does not consider dynamics like tire forces, slip angle or slip ratio because Udacity's simulator does not support it.
+
+```cpp
+x_[t+1] = x[t] + v[t] * cos(psi[t]) * dt
+y_[t+1] = y[t] + v[t] * sin(psi[t]) * dt
+psi_[t+1] = psi[t] + v[t] / Lf * delta[t] * dt
+v_[t+1] = v[t] + a[t] * dt
+```
+
+The errors are calculated as followed:
+```cpp
+cte[t+1] = f(x[t]) - y[t] + v[t] * sin(epsi[t]) * dt
+epsi[t+1] = psi[t] - psides[t] + v[t] * delta[t] / Lf * dt
+```
+
+### Cost Function
+The cost function is defined by the sum of the following attributes over all timesteps `N`:
+
+- Cross Track Error `cte`
+- Orientation error `epsi`
+- Magnitude of steering angle `delta`and throttle `a`. This limits the usage of the actuators.
+- Change rate of steering angle `delta_change` and throttle `a_change`. This limits the change rate of the actuators between two timesteps.
+
+In order to weight the individual costs I applied the following weights. The weight factors have been tuned manually in several test runs. The higher weights for the cross track and orientation errors keeps the vehicle in the center of the lane. A lower weight for the velocity enables MPC to slow down in e.g. curves.
+
+```cpp
+// optimization weights
+const double cte_cost_weight = 3000;
+const double epsi_cost_weight = 2800;
+const double v_cost_weight = 1;
+const double delta_cost_weight = 100;
+const double a_cost_weight = 20;
+const double delta_change_cost_weight = 100;
+const double a_change_cost_weight = 10;
+```
+
+### Hyperparameters
+To tune the "look ahead time" of the MPC, you can tune the number of timesteps `N` and the length of each timestep `dt`. The parameters have to be chosen wisely. Small `dt` values reduce the distance between two points in the reference polynomial but increase the processing time at the same time which might lead to an oscillating controller because the steering and throttle commands are send too late. The number of timesteps `N` defines the number of total points for the polynomial fit. A small number leads to a shorter line. Thus the controller reduces e.g. the speed before a curve too late.
+
+Finally, I decided to use `N = 10`and `dt = 0.1` which leads to a total look ahead time of 1 second. This is a good compromise between processing time and lookahead distance for the chosen target speed of 100 mph.
+
+### Latency Compensation
+To compensate the latency of 100 ms the state vector [px, py, pis v] and the errors `cte`and `epsi`are predicted by a kinematic model 100 ms ahead (see code below) before the MPC solve function is called.
+
+```cpp
+double pred_px = 0.0 + v * dt; // Since psi is zero, cos(0) = 1, can leave out
+const double pred_py = 0.0; // Since sin(0) = 0, y stays as 0 (y + v * 0 * dt)
+double pred_psi = 0.0 + v * -delta / Lf * dt;
+double pred_v = v + a * dt;
+double pred_cte = cte + v * sin(epsi) * dt;
+double pred_epsi = epsi + v * -delta / Lf * dt;
+```
+
+## Results
+The MPC has been developed on a powerful Apple Mac Book Pro 2017 (3,1 GHz Intel Core i7, 16 GB RAM, Radeon Pro 560 with 4 GB). The MPC performance is demonstrated in the YouTube video.
+
+YouTube Video
+
+[![Link](https://img.youtube.com/vi/s-m8sX0rvnQ/0.jpg)](https://youtu.be/s-m8sX0rvnQ)
+
 
 ## Dependencies
 
@@ -19,7 +114,7 @@ Self-Driving Car Engineer Nanodegree Program
   * Run either `install-mac.sh` or `install-ubuntu.sh`.
   * If you install from source, checkout to commit `e94b6e1`, i.e.
     ```
-    git clone https://github.com/uWebSockets/uWebSockets 
+    git clone https://github.com/uWebSockets/uWebSockets
     cd uWebSockets
     git checkout e94b6e1
     ```
@@ -43,7 +138,7 @@ Self-Driving Car Engineer Nanodegree Program
        per this [forum post](https://discussions.udacity.com/t/incorrect-checksum-for-freed-object/313433/19).
   * Linux
     * You will need a version of Ipopt 3.12.1 or higher. The version available through `apt-get` is 3.11.x. If you can get that version to work great but if not there's a script `install_ipopt.sh` that will install Ipopt. You just need to download the source from the Ipopt [releases page](https://www.coin-or.org/download/source/Ipopt/).
-    * Then call `install_ipopt.sh` with the source directory as the first argument, ex: `sudo bash install_ipopt.sh Ipopt-3.12.1`. 
+    * Then call `install_ipopt.sh` with the source directory as the first argument, ex: `sudo bash install_ipopt.sh Ipopt-3.12.1`.
   * Windows: TODO. If you can use the Linux subsystem and follow the Linux instructions.
 * [CppAD](https://www.coin-or.org/CppAD/)
   * Mac: `brew install cppad`
@@ -129,4 +224,3 @@ still be compilable with cmake and make./
 
 ## How to write a README
 A well written README file can enhance your project and portfolio.  Develop your abilities to create professional README files by completing [this free course](https://www.udacity.com/course/writing-readmes--ud777).
-
